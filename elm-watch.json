@@ -1,0 +1,9 @@
+{
+  "targets": {
+    "Text editor": {
+      "inputs": ["src/Main.elm"],
+      "output": "public/elm.js"
+    }
+  },
+  "serve": "public"
+}

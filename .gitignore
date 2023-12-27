@@ -1,0 +1,7 @@
+# Caches
+elm-stuff
+node_modules
+
+# Generated
+public/elm.js
+src/Css.elm

@@ -1,0 +1,39 @@
+* {
+    box-sizing: border-box;
+}
+
+p:focus .cursor {
+    border-left: 3px solid hsla(0, 0%, 0%, 1);
+    animation-name: blinking;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+}
+
+@keyframes blinking {
+    50% {
+        border-color: hsla(0, 0%, 0%, 0);
+    }
+}
+
+p:not(:focus) .cursor {
+    border-left: 3px solid hsl(224, 100%, 75%);
+    animation-name: slow-blink;
+    animation-duration: 5s;
+    animation-iteration-count: infinite;
+}
+
+@keyframes slow-blink {
+    50% {
+        border-color: hsl(291, 100%, 75%);
+    }
+}
+
+.space {
+    width: 0.25rem;
+    /* display: inline-block; */
+}
+
+p span {
+    height: 1rem;
+    display: inline-block;
+}
