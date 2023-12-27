@@ -79,11 +79,23 @@ type Msg
     = KeyDown Bool String
     | Paste String
     | SetCursor Int
+    | Undo
+    | Redo
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Undo ->
+            ( { model | table = PieceTable.undo model.table }
+            , Cmd.none
+            )
+
+        Redo ->
+            ( { model | table = PieceTable.redo model.table }
+            , Cmd.none
+            )
+
         SetCursor offset ->
             ( { model
                 | cursors =
@@ -183,11 +195,7 @@ update msg model =
                     ( addText "\n" model, Cmd.none )
 
                 "Tab" ->
-                    let
-                        _ =
-                            Debug.log "todo" key
-                    in
-                    ( model, Cmd.none )
+                    ( addText "\t" model, Cmd.none )
 
                 "Shift" ->
                     let
@@ -549,11 +557,11 @@ view model =
         [ Html.div
             []
             [ Html.button
-                []
+                [ Html.Events.onClick Undo ]
                 [ Html.text "Undo" ]
             , Html.button
-                []
-                [ Html.text "Repo" ]
+                [ Html.Events.onClick Redo ]
+                [ Html.text "Redo" ]
             ]
         , viewTable model.table model.cursors
         ]
@@ -603,7 +611,7 @@ viewTable table cursors =
         |> (\( _, _, rows ) -> rows)
         |> Html.p
             [ Html.Attributes.tabindex 0
-            , Html.Events.on "keydown" decodeKeyDown
+            , Html.Events.custom "keydown" decodeKeyDown
             , Html.Events.custom "paste" decodePaste
             ]
 
@@ -640,6 +648,15 @@ viewRow rowText rowGrahpemes rowOffset cursors =
                         , Html.br [] []
                         ]
 
+                    "\t" ->
+                        [ Html.span
+                            [ cursorStyle
+                            , Css.tab
+                            , setCursor
+                            ]
+                            [ Html.text " " ]
+                        ]
+
                     " " ->
                         [ Html.span
                             [ cursorStyle
@@ -664,7 +681,12 @@ viewRow rowText rowGrahpemes rowOffset cursors =
             ]
 
 
-decodeKeyDown : Json.Decode.Decoder Msg
+decodeKeyDown :
+    Json.Decode.Decoder
+        { message : Msg
+        , stopPropagation : Bool
+        , preventDefault : Bool
+        }
 decodeKeyDown =
     Json.Decode.map4 (\key meta control alt -> ( KeyDown alt key, meta, control ))
         (Json.Decode.field "key" Json.Decode.string)
@@ -677,7 +699,11 @@ decodeKeyDown =
                     Json.Decode.fail "ignore"
 
                 else
-                    Json.Decode.succeed keydown
+                    Json.Decode.succeed
+                        { message = keydown
+                        , stopPropagation = True
+                        , preventDefault = True
+                        }
             )
 
 

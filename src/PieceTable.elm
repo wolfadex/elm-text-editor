@@ -3,6 +3,7 @@ module PieceTable exposing
     , insert, delete, replace
     , Error(..)
     , toString
+    , undo, redo
     )
 
 {-|
@@ -13,6 +14,8 @@ module PieceTable exposing
 @docs Error
 
 @docs toString
+
+@docs undo, redo
 
 -}
 
@@ -27,6 +30,8 @@ type alias TableInternal =
     { original : String
     , add : String
     , pieces : List Piece
+    , past : List (List Piece)
+    , future : List (List Piece)
     }
 
 
@@ -50,6 +55,8 @@ init original =
         , pieces =
             [ { offset = 0, length = String.Graphemes.length original, source = Original }
             ]
+        , past = []
+        , future = []
         }
 
 
@@ -110,6 +117,8 @@ insert offset str (Table table) =
                                                 piece
                                         )
                                         table.pieces
+                                , future = []
+                                , past = table.pieces :: table.past
                             }
 
                     else
@@ -138,6 +147,8 @@ insert offset str (Table table) =
                                     List.take pieceIndex table.pieces
                                         ++ insertPieces
                                         ++ List.drop (pieceIndex + 1) table.pieces
+                                , future = []
+                                , past = table.pieces :: table.past
                             }
                 )
 
@@ -172,6 +183,8 @@ delete offset length (Table table) =
                                             piece
                                     )
                                     table.pieces
+                            , future = []
+                            , past = table.pieces :: table.past
                         }
                     -- Or at the end of the initialPiece?
 
@@ -188,6 +201,8 @@ delete offset length (Table table) =
                                             piece
                                     )
                                     table.pieces
+                            , future = []
+                            , past = table.pieces :: table.past
                         }
 
                 else
@@ -211,6 +226,8 @@ delete offset length (Table table) =
                                 List.take initialAffectedPieceIndex table.pieces
                                     ++ deletePieces
                                     ++ List.drop (finalAffectedPieceIndex - initialAffectedPieceIndex + 1) table.pieces
+                            , future = []
+                            , past = table.pieces :: table.past
                         }
             )
             (sequenceOffsetToPieceIndexAndBufferOffset offset table)
@@ -222,6 +239,36 @@ replace offset length str table =
     table
         |> delete offset length
         |> Result.andThen (insert offset str)
+
+
+undo : Table -> Table
+undo (Table table) =
+    case table.past of
+        [] ->
+            Table table
+
+        pastPieces :: rest ->
+            Table
+                { table
+                    | past = rest
+                    , future = table.pieces :: table.future
+                    , pieces = pastPieces
+                }
+
+
+redo : Table -> Table
+redo (Table table) =
+    case table.future of
+        [] ->
+            Table table
+
+        futurePieces :: rest ->
+            Table
+                { table
+                    | past = table.pieces :: table.past
+                    , future = rest
+                    , pieces = futurePieces
+                }
 
 
 
