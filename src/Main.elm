@@ -8,8 +8,10 @@ import Html.Events
 import Json.Decode
 import Nonempty.List
 import PieceTable
+import String.Extra
 import String.Graphemes
 import Task
+import Unicode
 
 
 main : Program () Model Msg
@@ -20,6 +22,12 @@ main =
         , update = update
         , subscriptions = subscriptions
         }
+
+
+
+-----------
+-- MODEL --
+-----------
 
 
 type alias Model =
@@ -34,23 +42,15 @@ type alias Cursor =
     }
 
 
+
+----------
+-- INIT --
+----------
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
-    let
-        table =
-            PieceTable.init "Hello,\nWorld and friends!"
-    in
-    ( { table =
-            table
-
-      -- |> PieceTable.insert 12 " Bob"
-      -- |> Result.andThen (PieceTable.delete 7 6)
-      -- |> Result.andThen (PieceTable.delete 0 5)
-      -- |> Result.andThen (PieceTable.insert 0 "Goodbye")
-      -- |> Result.andThen (PieceTable.replace 4 3 " morning")
-      -- |> Result.andThen (PieceTable.insert 12 "\n")
-      -- |> Result.toMaybe
-      -- |> Maybe.withDefault table
+    ( { table = PieceTable.init ""
       , cursors =
             Nonempty.List.singleton
                 { offset = 0, length = Nothing }
@@ -59,14 +59,26 @@ init _ =
     )
 
 
+
+-------------------
+-- SUBSCRIPTIONS --
+-------------------
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
 
 
+
+------------
+-- UPDATE --
+------------
+
+
 type Msg
     = NoOp
-    | KeyDown String
+    | KeyDown Bool String
     | Paste String
     | SetCursor Int
 
@@ -88,36 +100,23 @@ update msg model =
             , Cmd.none
             )
 
-        KeyDown key ->
+        KeyDown alt key ->
             case key of
                 "ArrowRight" ->
-                    ( { model
-                        | cursors =
-                            model.cursors
-                                |> Nonempty.List.map
-                                    (\cursor ->
-                                        { cursor
-                                            | offset =
-                                                min
-                                                    (PieceTable.toString model.table |> String.Graphemes.length)
-                                                    (cursor.offset + 1)
-                                        }
-                                    )
-                      }
+                    ( if alt then
+                        jumpRight 1 model
+
+                      else
+                        moveRight 1 model
                     , Cmd.none
                     )
 
                 "ArrowLeft" ->
-                    ( { model
-                        | cursors =
-                            model.cursors
-                                |> Nonempty.List.map
-                                    (\cursor ->
-                                        { cursor
-                                            | offset = max 0 (cursor.offset - 1)
-                                        }
-                                    )
-                      }
+                    ( if alt then
+                        jumpLeft 1 model
+
+                      else
+                        moveLeft 1 model
                     , Cmd.none
                     )
 
@@ -239,6 +238,136 @@ update msg model =
             ( addText text model
             , Cmd.none
             )
+
+
+moveRight : Int -> Model -> Model
+moveRight amount model =
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (moveCursorBy
+                        (model.table
+                            |> PieceTable.toString
+                            |> String.Graphemes.length
+                        )
+                        1
+                    )
+    }
+
+
+moveCursorBy : Int -> Int -> Cursor -> Cursor
+moveCursorBy maximum amount cursor =
+    { cursor
+        | offset =
+            (cursor.offset + amount)
+                |> min maximum
+                |> max 0
+    }
+
+
+jumpRight : Int -> Model -> Model
+jumpRight amount model =
+    let
+        content =
+            model.table
+                |> PieceTable.toString
+    in
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (\cursor ->
+                        moveCursorBy
+                            (model.table
+                                |> PieceTable.toString
+                                |> String.Graphemes.length
+                            )
+                            (content
+                                |> String.Graphemes.dropLeft cursor.offset
+                                |> findNSeparatorIndex amount
+                            )
+                            cursor
+                    )
+    }
+
+
+jumpLeft : Int -> Model -> Model
+jumpLeft amount model =
+    let
+        content =
+            model.table
+                |> PieceTable.toString
+    in
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (\cursor ->
+                        moveCursorBy
+                            (model.table
+                                |> PieceTable.toString
+                                |> String.Graphemes.length
+                            )
+                            (content
+                                |> String.Graphemes.left cursor.offset
+                                |> String.Graphemes.reverse
+                                |> findNSeparatorIndex amount
+                                |> negate
+                            )
+                            cursor
+                    )
+    }
+
+
+findNSeparatorIndex : Int -> String -> Int
+findNSeparatorIndex separators str =
+    let
+        graphemes =
+            str
+                |> String.Graphemes.toList
+
+        stopFn =
+            case graphemes of
+                [] ->
+                    String.Extra.isBlank
+
+                firstGrapheme :: _ ->
+                    if String.Extra.isBlank firstGrapheme then
+                        String.Extra.isBlank >> not
+
+                    else
+                        String.Extra.isBlank
+    in
+    findNSeparatorIndexHelper stopFn separators 0 graphemes
+
+
+findNSeparatorIndexHelper : (String -> Bool) -> Int -> Int -> List String -> Int
+findNSeparatorIndexHelper stopFn separators index graphemes =
+    case graphemes of
+        [] ->
+            index
+
+        grapheme :: rest ->
+            if Debug.log "stop?" (stopFn (Debug.log "first char" grapheme)) && separators < 2 then
+                index
+
+            else
+                findNSeparatorIndexHelper stopFn (separators - 1) (index + 1) rest
+
+
+moveLeft : Int -> Model -> Model
+moveLeft amount model =
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (\cursor ->
+                        { cursor
+                            | offset = max 0 (cursor.offset - amount)
+                        }
+                    )
+    }
 
 
 moveUp : Int -> Model -> Model
@@ -513,10 +642,11 @@ viewRow rowText rowGrahpemes rowOffset cursors =
 
 decodeKeyDown : Json.Decode.Decoder Msg
 decodeKeyDown =
-    Json.Decode.map3 (\key meta control -> ( KeyDown key, meta, control ))
+    Json.Decode.map4 (\key meta control alt -> ( KeyDown alt key, meta, control ))
         (Json.Decode.field "key" Json.Decode.string)
         (Json.Decode.field "ctrlKey" Json.Decode.bool)
         (Json.Decode.field "metaKey" Json.Decode.bool)
+        (Json.Decode.field "altKey" Json.Decode.bool)
         |> Json.Decode.andThen
             (\( keydown, meta, control ) ->
                 if meta || control then
