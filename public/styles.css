@@ -30,7 +30,6 @@ p:not(:focus) .cursor {
 
 .space {
     width: 0.25rem;
-    /* display: inline-block; */
 }
 
 p span {

@@ -38,7 +38,7 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     let
         table =
-            PieceTable.init "Hello, World!"
+            PieceTable.init "Hello,\nWorld and friends!"
     in
     ( { table =
             table
@@ -68,6 +68,7 @@ type Msg
     = NoOp
     | KeyDown String
     | Paste String
+    | SetCursor Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -75,6 +76,17 @@ update msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
+
+        SetCursor offset ->
+            ( { model
+                | cursors =
+                    Nonempty.List.singleton
+                        { offset = offset
+                        , length = Nothing
+                        }
+              }
+            , Cmd.none
+            )
 
         KeyDown key ->
             case key of
@@ -164,18 +176,17 @@ update msg model =
                     )
 
                 "ArrowUp" ->
-                    let
-                        _ =
-                            Debug.log "todo" key
-                    in
-                    ( model, Cmd.none )
+                    ( moveUp 1 model
+                    , Cmd.none
+                    )
 
                 "ArrowDown" ->
-                    let
-                        _ =
-                            Debug.log "todo" key
-                    in
-                    ( model, Cmd.none )
+                    ( moveDown 1 model
+                    , Cmd.none
+                    )
+
+                "Enter" ->
+                    ( addText "\n" model, Cmd.none )
 
                 "Tab" ->
                     let
@@ -192,13 +203,6 @@ update msg model =
                     ( model, Cmd.none )
 
                 "Control" ->
-                    let
-                        _ =
-                            Debug.log "todo" key
-                    in
-                    ( model, Cmd.none )
-
-                "Enter" ->
                     let
                         _ =
                             Debug.log "todo" key
@@ -237,12 +241,103 @@ update msg model =
             )
 
 
+moveUp : Int -> Model -> Model
+moveUp amount model =
+    let
+        lines : List String
+        lines =
+            model.table
+                |> PieceTable.toString
+                |> String.Graphemes.split "\n"
+    in
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (\cursor ->
+                        { cursor
+                            | offset =
+                                let
+                                    ( currentLine, localOffset, currentLineLength ) =
+                                        findLine 0 lines cursor.offset
+
+                                    endOfPreviousLine =
+                                        List.take (currentLine - 1) lines
+                                            |> List.foldl (\line total -> String.Graphemes.length line + total) 0
+
+                                    endOfLine =
+                                        List.take currentLine lines
+                                            |> List.foldl (\line total -> String.Graphemes.length line + total) 0
+                                in
+                                min (endOfPreviousLine + localOffset - 1) endOfLine
+                                    |> max 0
+                            , length = Nothing
+                        }
+                    )
+    }
+
+
+moveDown : Int -> Model -> Model
+moveDown amount model =
+    let
+        lines : List String
+        lines =
+            model.table
+                |> PieceTable.toString
+                |> String.Graphemes.split "\n"
+    in
+    { model
+        | cursors =
+            model.cursors
+                |> Nonempty.List.map
+                    (\cursor ->
+                        { cursor
+                            | offset =
+                                let
+                                    ( currentLine, localOffset, currentLineLength ) =
+                                        findLine 0 lines cursor.offset
+
+                                    goalPosition =
+                                        cursor.offset + currentLineLength + 1
+
+                                    linesToCount =
+                                        List.take (currentLine + 2) lines
+
+                                    endOfLine =
+                                        linesToCount
+                                            |> List.foldl (\line total -> String.Graphemes.length line + total) 0
+                                            |> (+) (List.length linesToCount - 1)
+                                in
+                                min goalPosition endOfLine
+                            , length = Nothing
+                        }
+                    )
+    }
+
+
+findLine : Int -> List String -> Int -> ( Int, Int, Int )
+findLine row lines_ offset =
+    case lines_ of
+        [] ->
+            ( row, offset, 0 )
+
+        line :: [] ->
+            ( row, offset, String.Graphemes.length line )
+
+        line :: lines__ ->
+            let
+                lineLength =
+                    String.Graphemes.length line
+            in
+            if offset <= lineLength then
+                ( row, offset, lineLength )
+
+            else
+                findLine (row + 1) lines__ (offset - lineLength)
+
+
 addText : String -> Model -> Model
 addText text model =
-    let
-        _ =
-            Debug.log "addText" text
-    in
     { model
         | table =
             model.cursors
@@ -293,6 +388,12 @@ addText text model =
     }
 
 
+
+----------
+-- VIEW --
+----------
+
+
 view : Model -> Browser.Document Msg
 view model =
     { title = "Text Editor"
@@ -306,46 +407,108 @@ view model =
                 []
                 [ Html.text "Repo" ]
             ]
-        , model.table
-            |> PieceTable.toString
-            |> String.Graphemes.toList
-            |> (\chars -> chars ++ [ "" ])
-            |> List.indexedMap
-                (\index char ->
-                    let
-                        cursorStyle =
-                            if
-                                Nonempty.List.any (\cursor -> cursor.offset == index)
-                                    model.cursors
-                            then
-                                Css.cursor
-
-                            else
-                                emptyAttribute
-                    in
-                    case char of
-                        "\n" ->
-                            [ Html.span [ cursorStyle ] [], Html.br [] [] ]
-
-                        " " ->
-                            [ Html.span
-                                [ cursorStyle
-                                , Css.space
-                                ]
-                                [ Html.text char ]
-                            ]
-
-                        _ ->
-                            [ Html.span [ cursorStyle ] [ Html.text char ] ]
-                )
-            |> List.concat
-            |> Html.p
-                [ Html.Attributes.tabindex 0
-                , Html.Events.on "keydown" decodeKeyDown
-                , Html.Events.custom "paste" decodePaste
-                ]
+        , viewTable model.table model.cursors
         ]
     }
+
+
+viewTable : PieceTable.Table -> Nonempty.List.NonemptyList Cursor -> Html.Html Msg
+viewTable table cursors =
+    let
+        tableRows =
+            table
+                |> PieceTable.toString
+                |> String.Graphemes.split "\n"
+
+        rowCount =
+            List.length tableRows
+    in
+    tableRows
+        |> List.foldl
+            (\rowText ( rowIndex, rowOffset, rows ) ->
+                ( rowIndex + 1
+                , rowOffset
+                    + String.Graphemes.length rowText
+                    + (if rowIndex + 1 == rowCount then
+                        0
+
+                       else
+                        1
+                      )
+                , rows
+                    ++ [ viewRow
+                            rowText
+                            (if rowIndex + 1 == rowCount then
+                                String.Graphemes.toList rowText ++ [ "" ]
+
+                             else
+                                String.Graphemes.toList (rowText ++ "\n")
+                            )
+                            rowOffset
+                            cursors
+                       ]
+                )
+            )
+            ( 0, 0, [] )
+        |> (\( _, _, rows ) -> rows)
+        |> Html.p
+            [ Html.Attributes.tabindex 0
+            , Html.Events.on "keydown" decodeKeyDown
+            , Html.Events.custom "paste" decodePaste
+            ]
+
+
+viewRow : String -> List String -> Int -> Nonempty.List.NonemptyList Cursor -> Html.Html Msg
+viewRow rowText rowGrahpemes rowOffset cursors =
+    rowGrahpemes
+        |> List.indexedMap
+            (\rowIndex char ->
+                let
+                    index =
+                        rowOffset + rowIndex
+
+                    cursorStyle =
+                        if Nonempty.List.any (\cursor -> cursor.offset == index) cursors then
+                            Css.cursor
+
+                        else
+                            emptyAttribute
+
+                    setCursor =
+                        Html.Events.stopPropagationOn "click" (Json.Decode.succeed ( SetCursor index, True ))
+                in
+                case char of
+                    "\n" ->
+                        [ Html.span
+                            [ cursorStyle
+                            , setCursor
+                            ]
+                            []
+                        , Html.br [] []
+                        ]
+
+                    " " ->
+                        [ Html.span
+                            [ cursorStyle
+                            , Css.space
+                            , setCursor
+                            ]
+                            [ Html.text char ]
+                        ]
+
+                    _ ->
+                        [ Html.span [ cursorStyle, setCursor ] [ Html.text char ] ]
+            )
+        |> List.concat
+        |> Html.div
+            [ Html.Events.stopPropagationOn "click"
+                (Json.Decode.succeed
+                    ( SetCursor
+                        (rowOffset + String.Graphemes.length rowText)
+                    , True
+                    )
+                )
+            ]
 
 
 decodeKeyDown : Json.Decode.Decoder Msg
