@@ -4,5 +4,8 @@
   },
   {
     "command": ["npm", "run", "dev:css"]
+  },
+  {
+    "command": ["npm", "run", "dev:review"]
   }
 ]

@@ -2,7 +2,7 @@ module Main exposing (main)
 
 import Browser
 import Css
-import Html exposing (Html)
+import Html
 import Html.Attributes
 import Html.Events
 import Json.Decode
@@ -10,7 +10,6 @@ import Nonempty.List
 import PieceTable
 import String.Extra
 import String.Graphemes
-import Task
 import Unicode
 
 
@@ -66,7 +65,7 @@ init _ =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.none
 
 
@@ -77,8 +76,7 @@ subscriptions model =
 
 
 type Msg
-    = NoOp
-    | KeyDown Bool String
+    = KeyDown Bool String
     | Paste String
     | SetCursor Int
 
@@ -86,9 +84,6 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
-
         SetCursor offset ->
             ( { model
                 | cursors =
@@ -268,33 +263,46 @@ moveCursorBy maximum amount cursor =
 
 jumpRight : Int -> Model -> Model
 jumpRight amount model =
-    let
-        content =
-            model.table
-                |> PieceTable.toString
-    in
-    { model
-        | cursors =
-            model.cursors
-                |> Nonempty.List.map
-                    (\cursor ->
-                        moveCursorBy
-                            (model.table
-                                |> PieceTable.toString
-                                |> String.Graphemes.length
-                            )
-                            (content
-                                |> String.Graphemes.dropLeft cursor.offset
-                                |> findNSeparatorIndex amount
-                            )
-                            cursor
-                    )
-    }
+    jumpSideways
+        (\content cursor ->
+            moveCursorBy
+                (model.table
+                    |> PieceTable.toString
+                    |> String.Graphemes.length
+                )
+                (content
+                    |> String.Graphemes.dropLeft cursor.offset
+                    |> findNSeparatorIndex amount
+                )
+                cursor
+        )
+        model
 
 
 jumpLeft : Int -> Model -> Model
 jumpLeft amount model =
+    jumpSideways
+        (\content cursor ->
+            moveCursorBy
+                (model.table
+                    |> PieceTable.toString
+                    |> String.Graphemes.length
+                )
+                (content
+                    |> String.Graphemes.left cursor.offset
+                    |> String.Graphemes.reverse
+                    |> findNSeparatorIndex amount
+                    |> negate
+                )
+                cursor
+        )
+        model
+
+
+jumpSideways : (String -> Cursor -> Cursor) -> Model -> Model
+jumpSideways jumpFn model =
     let
+        content : String
         content =
             model.table
                 |> PieceTable.toString
@@ -302,31 +310,19 @@ jumpLeft amount model =
     { model
         | cursors =
             model.cursors
-                |> Nonempty.List.map
-                    (\cursor ->
-                        moveCursorBy
-                            (model.table
-                                |> PieceTable.toString
-                                |> String.Graphemes.length
-                            )
-                            (content
-                                |> String.Graphemes.left cursor.offset
-                                |> String.Graphemes.reverse
-                                |> findNSeparatorIndex amount
-                                |> negate
-                            )
-                            cursor
-                    )
+                |> Nonempty.List.map (jumpFn content)
     }
 
 
 findNSeparatorIndex : Int -> String -> Int
 findNSeparatorIndex separators str =
     let
+        graphemes : List String
         graphemes =
             str
                 |> String.Graphemes.toList
 
+        stopFn : String -> Bool
         stopFn =
             case graphemes of
                 [] ->
@@ -337,9 +333,25 @@ findNSeparatorIndex separators str =
                         String.Extra.isBlank >> not
 
                     else
-                        String.Extra.isBlank
+                        case String.uncons firstGrapheme of
+                            Just ( firstChar, _ ) ->
+                                if Unicode.isAlphaNum firstChar then
+                                    isNonAlphaNum
+
+                                else
+                                    \s -> String.Extra.isBlank s || not (isNonAlphaNum s)
+
+                            Nothing ->
+                                String.Extra.isBlank
     in
     findNSeparatorIndexHelper stopFn separators 0 graphemes
+
+
+isNonAlphaNum : String -> Bool
+isNonAlphaNum =
+    String.uncons
+        >> Maybe.map (Tuple.first >> Unicode.isAlphaNum >> not)
+        >> Maybe.withDefault False
 
 
 findNSeparatorIndexHelper : (String -> Bool) -> Int -> Int -> List String -> Int
@@ -349,7 +361,7 @@ findNSeparatorIndexHelper stopFn separators index graphemes =
             index
 
         grapheme :: rest ->
-            if Debug.log "stop?" (stopFn (Debug.log "first char" grapheme)) && separators < 2 then
+            if stopFn grapheme && separators < 2 then
                 index
 
             else
@@ -387,13 +399,15 @@ moveUp amount model =
                         { cursor
                             | offset =
                                 let
-                                    ( currentLine, localOffset, currentLineLength ) =
+                                    ( currentLine, localOffset, _ ) =
                                         findLine 0 lines cursor.offset
 
+                                    endOfPreviousLine : Int
                                     endOfPreviousLine =
                                         List.take (currentLine - 1) lines
                                             |> List.foldl (\line total -> String.Graphemes.length line + total) 0
 
+                                    endOfLine : Int
                                     endOfLine =
                                         List.take currentLine lines
                                             |> List.foldl (\line total -> String.Graphemes.length line + total) 0
@@ -423,15 +437,18 @@ moveDown amount model =
                         { cursor
                             | offset =
                                 let
-                                    ( currentLine, localOffset, currentLineLength ) =
+                                    ( currentLine, _, currentLineLength ) =
                                         findLine 0 lines cursor.offset
 
+                                    goalPosition : Int
                                     goalPosition =
                                         cursor.offset + currentLineLength + 1
 
+                                    linesToCount : List String
                                     linesToCount =
                                         List.take (currentLine + 2) lines
 
+                                    endOfLine : Int
                                     endOfLine =
                                         linesToCount
                                             |> List.foldl (\line total -> String.Graphemes.length line + total) 0
@@ -455,6 +472,7 @@ findLine row lines_ offset =
 
         line :: lines__ ->
             let
+                lineLength : Int
                 lineLength =
                     String.Graphemes.length line
             in
@@ -489,6 +507,7 @@ addText text model =
                 |> Maybe.withDefault model.table
         , cursors =
             let
+                baseOffset : Int
                 baseOffset =
                     String.Graphemes.length text
             in
@@ -544,11 +563,13 @@ view model =
 viewTable : PieceTable.Table -> Nonempty.List.NonemptyList Cursor -> Html.Html Msg
 viewTable table cursors =
     let
+        tableRows : List String
         tableRows =
             table
                 |> PieceTable.toString
                 |> String.Graphemes.split "\n"
 
+        rowCount : Int
         rowCount =
             List.length tableRows
     in
@@ -593,9 +614,11 @@ viewRow rowText rowGrahpemes rowOffset cursors =
         |> List.indexedMap
             (\rowIndex char ->
                 let
+                    index : Int
                     index =
                         rowOffset + rowIndex
 
+                    cursorStyle : Html.Attribute Msg
                     cursorStyle =
                         if Nonempty.List.any (\cursor -> cursor.offset == index) cursors then
                             Css.cursor
@@ -603,6 +626,7 @@ viewRow rowText rowGrahpemes rowOffset cursors =
                         else
                             emptyAttribute
 
+                    setCursor : Html.Attribute Msg
                     setCursor =
                         Html.Events.stopPropagationOn "click" (Json.Decode.succeed ( SetCursor index, True ))
                 in

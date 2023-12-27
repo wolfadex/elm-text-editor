@@ -1,6 +1,7 @@
 module PieceTable exposing
     ( Table, init
     , insert, delete, replace
+    , Error(..)
     , toString
     )
 
@@ -9,6 +10,7 @@ module PieceTable exposing
 @docs Table, init
 
 @docs insert, delete, replace
+@docs Error
 
 @docs toString
 
@@ -90,6 +92,7 @@ insert offset str (Table table) =
             |> Result.map
                 (\( pieceIndex, originalPiece, bufferOffset ) ->
                     let
+                        addBufferOffset : Int
                         addBufferOffset =
                             String.Graphemes.length table.add
                     in
@@ -111,6 +114,7 @@ insert offset str (Table table) =
 
                     else
                         let
+                            insertPieces : List Piece
                             insertPieces =
                                 [ { source = originalPiece.source
                                   , offset = originalPiece.offset
@@ -188,6 +192,7 @@ delete offset length (Table table) =
 
                 else
                     let
+                        deletePieces : List Piece
                         deletePieces =
                             [ { source = initialPiece.source
                               , offset = initialPiece.offset
