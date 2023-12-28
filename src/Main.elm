@@ -2,7 +2,7 @@ module Main exposing (main)
 
 import Browser
 import Css
-import Html
+import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Json.Decode
@@ -568,7 +568,7 @@ view model =
     }
 
 
-viewTable : PieceTable.Table -> Nonempty.List.NonemptyList Cursor -> Html.Html Msg
+viewTable : PieceTable.Table -> Nonempty.List.NonemptyList Cursor -> Html Msg
 viewTable table cursors =
     let
         tableRows : List String
@@ -594,7 +594,7 @@ viewTable table cursors =
                         1
                       )
                 , rows
-                    ++ [ viewRow
+                    ++ [ viewRow rowIndex
                             rowText
                             (if rowIndex + 1 == rowCount then
                                 String.Graphemes.toList rowText ++ [ "" ]
@@ -609,22 +609,25 @@ viewTable table cursors =
             )
             ( 0, 0, [] )
         |> (\( _, _, rows ) -> rows)
-        |> Html.p
+        |> List.concat
+        |> Html.div
             [ Html.Attributes.tabindex 0
             , Html.Events.custom "keydown" decodeKeyDown
             , Html.Events.custom "paste" decodePaste
+            , Css.editorBody
             ]
 
 
-viewRow : String -> List String -> Int -> Nonempty.List.NonemptyList Cursor -> Html.Html Msg
-viewRow rowText rowGrahpemes rowOffset cursors =
-    rowGrahpemes
+viewRow : Int -> String -> List String -> Int -> Nonempty.List.NonemptyList Cursor -> List (Html Msg)
+viewRow rowIndex rowText rowGrahpemes rowOffset cursors =
+    [ Html.span [ Css.lineNumber ] [ Html.text (String.fromInt (rowIndex + 1)) ]
+    , rowGrahpemes
         |> List.indexedMap
-            (\rowIndex char ->
+            (\columnIndex char ->
                 let
                     index : Int
                     index =
-                        rowOffset + rowIndex
+                        rowOffset + columnIndex
 
                     cursorStyle : Html.Attribute Msg
                     cursorStyle =
@@ -678,7 +681,9 @@ viewRow rowText rowGrahpemes rowOffset cursors =
                     , True
                     )
                 )
+            , Css.textRow
             ]
+    ]
 
 
 decodeKeyDown :
